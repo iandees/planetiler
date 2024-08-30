@@ -68,8 +68,8 @@ public class OsmQaTiles implements Profile {
       if (feature != null) {
         var element = osmFeature.originalElement();
         feature
-          .setMinPixelSize(0)
-          .setPixelTolerance(0)
+          .setMinPixelSizeAtMaxZoom(0)
+          .setPixelToleranceAtMaxZoom(0)
           .setBufferPixels(0);
         for (var entry : sourceFeature.tags().entrySet()) {
           feature.setAttr(entry.getKey(), entry.getValue());
