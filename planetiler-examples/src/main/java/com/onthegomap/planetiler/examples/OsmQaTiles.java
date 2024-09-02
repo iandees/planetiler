@@ -3,11 +3,25 @@ package com.onthegomap.planetiler.examples;
 import com.onthegomap.planetiler.FeatureCollector;
 import com.onthegomap.planetiler.Planetiler;
 import com.onthegomap.planetiler.Profile;
+import com.onthegomap.planetiler.VectorTile;
 import com.onthegomap.planetiler.config.Arguments;
+import com.onthegomap.planetiler.geo.DouglasPeuckerSimplifier;
+import com.onthegomap.planetiler.geo.GeoUtils;
+import com.onthegomap.planetiler.geo.GeometryException;
+import com.onthegomap.planetiler.geo.GeometryType;
 import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.reader.osm.OsmElement;
 import com.onthegomap.planetiler.reader.osm.OsmSourceFeature;
+import com.onthegomap.planetiler.util.BinPack;
+import java.awt.Point;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.locationtech.jts.geom.CoordinateXY;
 
 /**
  * Generates tiles with a raw copy of OSM data in a single "osm" layer at one zoom level, similar to
@@ -36,6 +50,12 @@ import java.nio.file.Path;
  */
 public class OsmQaTiles implements Profile {
 
+  private final int maxzoom;
+
+  public OsmQaTiles(int maxzoom) {
+    this.maxzoom = maxzoom;
+  }
+
   public static void main(String[] args) throws Exception {
     run(Arguments.fromArgsOrConfigFile(args));
   }
@@ -49,7 +69,7 @@ public class OsmQaTiles implements Profile {
     ));
     String area = args.getString("area", "geofabrik area to download", "monaco");
     Planetiler.create(args)
-      .setProfile(new OsmQaTiles())
+      .setProfile(new OsmQaTiles(zoom))
       .addOsmSource("osm",
         Path.of("data", "sources", area + ".osm.pbf"),
         "planet".equalsIgnoreCase(area) ? "aws:latest" : ("geofabrik:" + area)
@@ -60,39 +80,107 @@ public class OsmQaTiles implements Profile {
 
   @Override
   public void processFeature(SourceFeature sourceFeature, FeatureCollector features) {
-    if (!sourceFeature.tags().isEmpty() && sourceFeature instanceof OsmSourceFeature osmFeature) {
-      var feature = sourceFeature.canBePolygon() ? features.polygon("osm") :
-        sourceFeature.canBeLine() ? features.line("osm") :
-        sourceFeature.isPoint() ? features.point("osm") :
-        null;
-      if (feature != null) {
-        var element = osmFeature.originalElement();
-        feature
-          .setMinPixelSize(0)
-          .setPixelTolerance(0)
-          .setBufferPixels(0);
-        for (var entry : sourceFeature.tags().entrySet()) {
-          feature.setAttr(entry.getKey(), entry.getValue());
+    if (sourceFeature.tags().isEmpty() || !(sourceFeature instanceof OsmSourceFeature osmFeature)) {
+      return;
+    }
+
+    var feature = sourceFeature.canBePolygon() ? features.polygon("osm") :
+      sourceFeature.canBeLine() ? features.line("osm") :
+      sourceFeature.isPoint() ? features.point("osm") :
+      null;
+
+    if (feature == null) {
+      return;
+    }
+
+    feature
+      .setMinPixelSizeAtMaxZoom(0)
+      .setPixelToleranceAtMaxZoom(0)
+      .setBufferPixels(0);
+
+    for (var entry : sourceFeature.tags().entrySet()) {
+      feature.setAttr(entry.getKey(), entry.getValue());
+    }
+
+    var element = osmFeature.originalElement();
+    feature
+      .setAttr("@id", sourceFeature.id())
+      .setAttr("@type", switch (element) {
+        case OsmElement.Node ignored -> "node";
+        case OsmElement.Way ignored -> "way";
+        case OsmElement.Relation ignored -> "relation";
+        default -> null;
+      });
+
+    var info = element.info();
+    if (info == null) {
+      return;
+    }
+
+    feature
+      .setAttr("@version", info.version() == 0 ? null : info.version())
+      .setAttr("@timestamp", info.timestamp() == 0L ? null : info.timestamp())
+      .setAttr("@changeset", info.changeset() == 0L ? null : info.changeset())
+      .setAttr("@uid", info.userId() == 0 ? null : info.userId())
+      .setAttr("@user", info.user() == null || info.user().isBlank() ? null : info.user());
+  }
+
+  @Override
+  public List<VectorTile.Feature> postProcessLayerFeatures(String layer, int zoom,
+    List<VectorTile.Feature> items) throws GeometryException {
+    // If we're at the max zoom, then return null to indicate that we don't need to do any further processing
+    if (zoom == this.maxzoom) {
+      return null;
+    }
+
+    // Otherwise, if the area of the feature is less than 1 pixel at the current zoom level, then convert it to a point
+    var newItems = new ArrayList<VectorTile.Feature>(items.size());
+    for (var item : items) {
+      var geom = item.geometry().decode();
+      switch (geom.getGeometryType()) {
+        case "Point", "MultiPoint" -> {
+          // Add points directly
+          newItems.add(item);
         }
-        feature
-          .setAttr("@id", sourceFeature.id())
-          .setAttr("@type", switch (element) {
-            case OsmElement.Node ignored -> "node";
-            case OsmElement.Way ignored -> "way";
-            case OsmElement.Relation ignored -> "relation";
-            default -> null;
-          });
-        var info = element.info();
-        if (info != null) {
-          feature
-            .setAttr("@version", info.version() == 0 ? null : info.version())
-            .setAttr("@timestamp", info.timestamp() == 0L ? null : info.timestamp())
-            .setAttr("@changeset", info.changeset() == 0L ? null : info.changeset())
-            .setAttr("@uid", info.userId() == 0 ? null : info.userId())
-            .setAttr("@user", info.user() == null || info.user().isBlank() ? null : info.user());
+        case "LineString", "MultiLineString" -> {
+          // If the length of the line is less than 1 pixel, convert it to a point
+          if (geom.getLength() < 1.0) {
+            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
+          } else {
+            newItems.add(item);
+          }
+        }
+        case "Polygon", "MultiPolygon" -> {
+          // If the area of the polygon is less than 1 pixel, convert it to a point
+          if (geom.getArea() < 1.0) {
+            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
+          } else {
+            newItems.add(item);
+          }
         }
       }
     }
+
+    // Only keep two points at each pixel
+    Map<CoordinateXY, Integer> seenPoints = new HashMap<>();
+    for (int i = 0; i < newItems.size(); i++) {
+      var item = newItems.get(i);
+      if (!GeometryType.POINT.equals(item.geometry().geomType())) {
+        continue;
+      }
+
+      var pt = item.geometry().firstCoordinate();
+
+      var pointCount = seenPoints.getOrDefault(pt, 0);
+      if (pointCount > 2) {
+        // If we have more than 2 points at this pixel, then remove the point
+        newItems.set(i, null);
+      }
+
+      seenPoints.put(pt, pointCount + 1);
+    }
+
+    return newItems;
   }
 
   @Override
