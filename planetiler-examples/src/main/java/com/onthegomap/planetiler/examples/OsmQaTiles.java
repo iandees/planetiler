@@ -84,18 +84,18 @@ public class OsmQaTiles implements Profile {
       return;
     }
 
-    var feature = sourceFeature.canBePolygon() ? features.polygon("osm") :
-      sourceFeature.canBeLine() ? features.line("osm") :
-      sourceFeature.isPoint() ? features.point("osm") :
-      null;
+    var feature = features.anyGeometry("osm");
 
     if (feature == null) {
       return;
     }
 
     feature
-      .setMinPixelSizeAtMaxZoom(0)
-      .setPixelToleranceAtMaxZoom(0)
+//      .setMaxZoom(this.maxzoom)
+//      .setMinPixelSizeAtMaxZoom(0)
+//      .setPixelToleranceAtMaxZoom(0)
+      .setMinPixelSize(0)
+      .setPixelTolerance(0)
       .setBufferPixels(0);
 
     for (var entry : sourceFeature.tags().entrySet()) {
