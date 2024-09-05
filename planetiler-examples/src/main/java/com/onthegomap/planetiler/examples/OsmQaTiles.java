@@ -134,7 +134,7 @@ public class OsmQaTiles implements Profile {
     }
 
     // Otherwise, if the area of the feature is less than 1 pixel at the current zoom level, then convert it to a point
-    var newItems = new ArrayList<VectorTile.Feature>(items.size());
+    List<VectorTile.Feature> newItems = new ArrayList<>(items.size());
     for (var item : items) {
       var geom = item.geometry().decode();
       switch (geom.getGeometryType()) {
@@ -144,7 +144,7 @@ public class OsmQaTiles implements Profile {
         }
         case "LineString", "MultiLineString" -> {
           // If the length of the line is less than 1 pixel, convert it to a point
-          if (geom.getLength() < 1.0) {
+          if (geom.getLength() < 2.0) {
             newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
           } else {
             newItems.add(item);
@@ -152,7 +152,7 @@ public class OsmQaTiles implements Profile {
         }
         case "Polygon", "MultiPolygon" -> {
           // If the area of the polygon is less than 1 pixel, convert it to a point
-          if (geom.getArea() < 1.0) {
+          if (geom.getArea() < 2.0) {
             newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
           } else {
             newItems.add(item);
@@ -163,10 +163,9 @@ public class OsmQaTiles implements Profile {
 
     // Only keep two points at each pixel
     Map<CoordinateXY, Integer> seenPoints = new HashMap<>();
-    for (int i = 0; i < newItems.size(); i++) {
-      var item = newItems.get(i);
+    newItems = newItems.stream().filter(item -> {
       if (!GeometryType.POINT.equals(item.geometry().geomType())) {
-        continue;
+        return true;
       }
 
       var pt = item.geometry().firstCoordinate();
@@ -174,11 +173,12 @@ public class OsmQaTiles implements Profile {
       var pointCount = seenPoints.getOrDefault(pt, 0);
       if (pointCount > 2) {
         // If we have more than 2 points at this pixel, then remove the point
-        newItems.set(i, null);
+        return false;
       }
 
       seenPoints.put(pt, pointCount + 1);
-    }
+      return true;
+    }).toList();
 
     return newItems;
   }
