@@ -5,23 +5,18 @@ import com.onthegomap.planetiler.Planetiler;
 import com.onthegomap.planetiler.Profile;
 import com.onthegomap.planetiler.VectorTile;
 import com.onthegomap.planetiler.config.Arguments;
-import com.onthegomap.planetiler.geo.DouglasPeuckerSimplifier;
-import com.onthegomap.planetiler.geo.GeoUtils;
 import com.onthegomap.planetiler.geo.GeometryException;
 import com.onthegomap.planetiler.geo.GeometryType;
 import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.reader.osm.OsmElement;
 import com.onthegomap.planetiler.reader.osm.OsmSourceFeature;
-import com.onthegomap.planetiler.util.BinPack;
-import java.awt.Point;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.locationtech.jts.geom.CoordinateXY;
+import org.locationtech.jts.geom.Geometry;
 
 /**
  * Generates tiles with a raw copy of OSM data in a single "osm" layer at one zoom level, similar to
@@ -91,12 +86,10 @@ public class OsmQaTiles implements Profile {
     }
 
     feature
-//      .setMaxZoom(this.maxzoom)
-//      .setMinPixelSizeAtMaxZoom(0)
-//      .setPixelToleranceAtMaxZoom(0)
       .setMinPixelSize(0)
       .setPixelTolerance(0)
-      .setBufferPixels(0);
+      // Try to avoid showing tile boundaries with large polygons
+      .setBufferPixels(1);
 
     for (var entry : sourceFeature.tags().entrySet()) {
       feature.setAttr(entry.getKey(), entry.getValue());
@@ -137,12 +130,19 @@ public class OsmQaTiles implements Profile {
     List<VectorTile.Feature> newItems = new ArrayList<>(items.size());
     for (var item : items) {
       var geom = item.geometry().decode();
+
+      // If the geometry is empty, then skip it
+      if (geom.isEmpty()) {
+        throw new GeometryException.Verbose("empty_geometry", "Empty geometry")
+          .addGeometryDetails("Empty geometry", geom);
+      }
+
       switch (geom.getGeometryType()) {
-        case "Point", "MultiPoint" -> {
+        case Geometry.TYPENAME_POINT, Geometry.TYPENAME_MULTIPOINT -> {
           // Add points directly
           newItems.add(item);
         }
-        case "LineString", "MultiLineString" -> {
+        case Geometry.TYPENAME_LINESTRING, Geometry.TYPENAME_MULTILINESTRING -> {
           // If the length of the line is less than 1 pixel, convert it to a point
           if (geom.getLength() < 2.0) {
             newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
@@ -150,8 +150,16 @@ public class OsmQaTiles implements Profile {
             newItems.add(item);
           }
         }
-        case "Polygon", "MultiPolygon" -> {
+        case Geometry.TYPENAME_POLYGON, Geometry.TYPENAME_MULTIPOLYGON -> {
           // If the area of the polygon is less than 1 pixel, convert it to a point
+          if (geom.getArea() < 2.0) {
+            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
+          } else {
+            newItems.add(item);
+          }
+        }
+        case Geometry.TYPENAME_GEOMETRYCOLLECTION -> {
+          // If the area of the geometry collection is less than 1 pixel, convert it to a point
           if (geom.getArea() < 2.0) {
             newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
           } else {
