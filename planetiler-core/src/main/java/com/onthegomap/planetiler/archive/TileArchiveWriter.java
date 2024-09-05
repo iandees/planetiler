@@ -116,10 +116,12 @@ public class TileArchiveWriter {
     // a larger tile queue size helps keep cores busy, but needs a lot of RAM
     // 5k works fine with 100GB of RAM, so adjust the queue size down from there
     // but no less than 100
-    int queueSize = Math.max(
-      100,
-      (int) (5_000d * ProcessInfo.getMaxMemoryBytes() / 100_000_000_000d)
-    );
+//    int queueSize = Math.max(
+//      100,
+//      (int) (5_000d * ProcessInfo.getMaxMemoryBytes() / 100_000_000_000d)
+//    );
+    // TODO Using a smaller queue size to avoid using too much memory for QA tiles
+    int queueSize = 12;
 
     /*
      * To emit tiles in order, fork the input queue and send features to both the encoder and writer. The writer
