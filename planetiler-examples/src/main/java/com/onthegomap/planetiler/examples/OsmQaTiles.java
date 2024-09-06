@@ -89,8 +89,30 @@ public class OsmQaTiles implements Profile {
       .setMinPixelSize(0)
       .setPixelTolerance(0)
       // Try to avoid showing tile boundaries with large polygons
-      .setBufferPixels(1);
+      .setBufferPixels(2);
 
+    applyOSMTags(feature, sourceFeature, osmFeature);
+
+    var zoomToSwitchToPoint = Math.min(this.maxzoom, feature.getMinZoomForPixelSize(1.0));
+
+    // Set the full fidelity feature minzoom to the switch point
+    feature.setZoomRange(zoomToSwitchToPoint, this.maxzoom);
+    feature.setAttr("@switch_zoom", zoomToSwitchToPoint);
+
+    // Create a point representation of the geometry that gets shown at lower zooms and set its maxzoom to the switch point
+    var pointFeature = features.centroid("osm")
+      .setZoomRange(0, zoomToSwitchToPoint-1)
+      .setSortKey(osmFeature.hashCode())
+      .setPointLabelGridSizeAndLimit(
+        zoomToSwitchToPoint-1, // only limit below the switch point
+        2, // break the tile up into 2x2 px squares
+        16 // any only keep the 16 nodes with lowest sort-key in each 2px square
+      );
+    applyOSMTags(pointFeature, sourceFeature, osmFeature);
+    pointFeature.setAttr("@switch_zoom", zoomToSwitchToPoint);
+  }
+
+  private static void applyOSMTags(FeatureCollector.Feature feature, SourceFeature sourceFeature, OsmSourceFeature osmFeature) {
     for (var entry : sourceFeature.tags().entrySet()) {
       feature.setAttr(entry.getKey(), entry.getValue());
     }
@@ -116,79 +138,6 @@ public class OsmQaTiles implements Profile {
       .setAttr("@changeset", info.changeset() == 0L ? null : info.changeset())
       .setAttr("@uid", info.userId() == 0 ? null : info.userId())
       .setAttr("@user", info.user() == null || info.user().isBlank() ? null : info.user());
-  }
-
-  @Override
-  public List<VectorTile.Feature> postProcessLayerFeatures(String layer, int zoom,
-    List<VectorTile.Feature> items) throws GeometryException {
-    // If we're at the max zoom, then return null to indicate that we don't need to do any further processing
-    if (zoom == this.maxzoom) {
-      return null;
-    }
-
-    // Otherwise, if the area of the feature is less than 1 pixel at the current zoom level, then convert it to a point
-    List<VectorTile.Feature> newItems = new ArrayList<>(items.size());
-    for (var item : items) {
-      var geom = item.geometry().decode();
-
-      // If the geometry is empty, then skip it
-      if (geom.isEmpty()) {
-        throw new GeometryException.Verbose("empty_geometry", "Empty geometry")
-          .addGeometryDetails("Empty geometry", geom);
-      }
-
-      switch (geom.getGeometryType()) {
-        case Geometry.TYPENAME_POINT, Geometry.TYPENAME_MULTIPOINT -> {
-          // Add points directly
-          newItems.add(item);
-        }
-        case Geometry.TYPENAME_LINESTRING, Geometry.TYPENAME_MULTILINESTRING -> {
-          // If the length of the line is less than 1 pixel, convert it to a point
-          if (geom.getLength() < 2.0) {
-            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
-          } else {
-            newItems.add(item);
-          }
-        }
-        case Geometry.TYPENAME_POLYGON, Geometry.TYPENAME_MULTIPOLYGON -> {
-          // If the area of the polygon is less than 1 pixel, convert it to a point
-          if (geom.getArea() < 2.0) {
-            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
-          } else {
-            newItems.add(item);
-          }
-        }
-        case Geometry.TYPENAME_GEOMETRYCOLLECTION -> {
-          // If the area of the geometry collection is less than 1 pixel, convert it to a point
-          if (geom.getArea() < 2.0) {
-            newItems.add(item.copyWithNewGeometry(geom.getCentroid()));
-          } else {
-            newItems.add(item);
-          }
-        }
-      }
-    }
-
-    // Only keep two points at each pixel
-    Map<CoordinateXY, Integer> seenPoints = new HashMap<>();
-    newItems = newItems.stream().filter(item -> {
-      if (!GeometryType.POINT.equals(item.geometry().geomType())) {
-        return true;
-      }
-
-      var pt = item.geometry().firstCoordinate();
-
-      var pointCount = seenPoints.getOrDefault(pt, 0);
-      if (pointCount > 2) {
-        // If we have more than 2 points at this pixel, then remove the point
-        return false;
-      }
-
-      seenPoints.put(pt, pointCount + 1);
-      return true;
-    }).toList();
-
-    return newItems;
   }
 
   @Override
