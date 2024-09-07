@@ -90,6 +90,13 @@ public class OsmQaTiles implements Profile {
 
     applyOSMTags(feature, sourceFeature, osmFeature);
 
+    // No need to switch to a point representation if the feature is already a point
+    if (sourceFeature.isPoint()) {
+      // Be sure to set the minzoom to 0 so that the point representation is shown at all zooms
+      feature.setZoomRange(this.minzoom, this.maxzoom);
+      return;
+    }
+
     var zoomToSwitchToPoint = Math.min(this.maxzoom, feature.getMinZoomForPixelSize(1.0));
 
     // Set the full fidelity feature minzoom to the switch point
