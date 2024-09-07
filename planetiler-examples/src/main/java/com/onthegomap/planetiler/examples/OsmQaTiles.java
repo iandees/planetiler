@@ -138,7 +138,7 @@ public class OsmQaTiles implements Profile {
       .setAttr("@version", info.version() == 0 ? null : info.version())
       .setAttr("@timestamp", info.timestamp() == 0L ? null : info.timestamp())
       .setAttr("@changeset", info.changeset() == 0L ? null : info.changeset())
-//      .setAttr("@uid", info.userId() == 0 ? null : info.userId())
+      .setAttr("@uid", info.userId() == 0 ? null : info.userId())
       .setAttr("@user", info.user() == null || info.user().isBlank() ? null : info.user());
   }
 
