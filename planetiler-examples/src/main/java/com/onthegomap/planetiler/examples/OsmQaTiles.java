@@ -4,6 +4,7 @@ import com.onthegomap.planetiler.FeatureCollector;
 import com.onthegomap.planetiler.Planetiler;
 import com.onthegomap.planetiler.Profile;
 import com.onthegomap.planetiler.config.Arguments;
+import com.onthegomap.planetiler.config.PlanetilerConfig;
 import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.reader.osm.OsmElement;
 import com.onthegomap.planetiler.reader.osm.OsmSourceFeature;
@@ -38,9 +39,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class OsmQaTiles implements Profile {
 
   private final int maxzoom;
+  private final int minzoom;
   private final AtomicInteger sortKeyInteger = new AtomicInteger(0);
 
-  public OsmQaTiles(int maxzoom) {
+  public OsmQaTiles(int minzoom, int maxzoom) {
+    this.minzoom = minzoom;
     this.maxzoom = maxzoom;
   }
 
@@ -56,8 +59,9 @@ public class OsmQaTiles implements Profile {
       "tile_warning_size_mb", 100
     ));
     String area = args.getString("area", "geofabrik area to download", "monaco");
+    PlanetilerConfig config = PlanetilerConfig.from(args);
     Planetiler.create(args)
-      .setProfile(new OsmQaTiles(zoom))
+      .setProfile(new OsmQaTiles(config.minzoom(), config.maxzoom()))
       .addOsmSource("osm",
         Path.of("data", "sources", area + ".osm.pbf"),
         "planet".equalsIgnoreCase(area) ? "aws:latest" : ("geofabrik:" + area)
@@ -93,7 +97,7 @@ public class OsmQaTiles implements Profile {
 
     // Create a point representation of the geometry that gets shown at lower zooms and set its maxzoom to the switch point
     var pointFeature = features.centroid("osm")
-      .setZoomRange(0, zoomToSwitchToPoint-1)
+      .setZoomRange(this.minzoom, zoomToSwitchToPoint-1)
       .setSortKey(sortKeyInteger.getAndIncrement())
       .setPointLabelGridSizeAndLimit(
         zoomToSwitchToPoint-1, // only limit below the switch point
