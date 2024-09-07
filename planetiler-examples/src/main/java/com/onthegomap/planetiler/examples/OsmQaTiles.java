@@ -3,20 +3,12 @@ package com.onthegomap.planetiler.examples;
 import com.onthegomap.planetiler.FeatureCollector;
 import com.onthegomap.planetiler.Planetiler;
 import com.onthegomap.planetiler.Profile;
-import com.onthegomap.planetiler.VectorTile;
 import com.onthegomap.planetiler.config.Arguments;
-import com.onthegomap.planetiler.geo.GeometryException;
-import com.onthegomap.planetiler.geo.GeometryType;
 import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.reader.osm.OsmElement;
 import com.onthegomap.planetiler.reader.osm.OsmSourceFeature;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import org.locationtech.jts.geom.CoordinateXY;
-import org.locationtech.jts.geom.Geometry;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Generates tiles with a raw copy of OSM data in a single "osm" layer at one zoom level, similar to
@@ -46,6 +38,7 @@ import org.locationtech.jts.geom.Geometry;
 public class OsmQaTiles implements Profile {
 
   private final int maxzoom;
+  private final AtomicInteger sortKeyInteger = new AtomicInteger(0);
 
   public OsmQaTiles(int maxzoom) {
     this.maxzoom = maxzoom;
@@ -97,19 +90,17 @@ public class OsmQaTiles implements Profile {
 
     // Set the full fidelity feature minzoom to the switch point
     feature.setZoomRange(zoomToSwitchToPoint, this.maxzoom);
-    feature.setAttr("@switch_zoom", zoomToSwitchToPoint);
 
     // Create a point representation of the geometry that gets shown at lower zooms and set its maxzoom to the switch point
     var pointFeature = features.centroid("osm")
       .setZoomRange(0, zoomToSwitchToPoint-1)
-      .setSortKey(osmFeature.hashCode())
+      .setSortKey(sortKeyInteger.getAndIncrement())
       .setPointLabelGridSizeAndLimit(
         zoomToSwitchToPoint-1, // only limit below the switch point
         2, // break the tile up into 2x2 px squares
         16 // any only keep the 16 nodes with lowest sort-key in each 2px square
       );
     applyOSMTags(pointFeature, sourceFeature, osmFeature);
-    pointFeature.setAttr("@switch_zoom", zoomToSwitchToPoint);
   }
 
   private static void applyOSMTags(FeatureCollector.Feature feature, SourceFeature sourceFeature, OsmSourceFeature osmFeature) {
@@ -136,7 +127,7 @@ public class OsmQaTiles implements Profile {
       .setAttr("@version", info.version() == 0 ? null : info.version())
       .setAttr("@timestamp", info.timestamp() == 0L ? null : info.timestamp())
       .setAttr("@changeset", info.changeset() == 0L ? null : info.changeset())
-      .setAttr("@uid", info.userId() == 0 ? null : info.userId())
+//      .setAttr("@uid", info.userId() == 0 ? null : info.userId())
       .setAttr("@user", info.user() == null || info.user().isBlank() ? null : info.user());
   }
 
