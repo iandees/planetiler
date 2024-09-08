@@ -21,7 +21,7 @@ import org.locationtech.jts.geom.Polygon;
 
 class OsmQaTilesTest {
 
-  private final OsmQaTiles profile = new OsmQaTiles(12);
+  private final OsmQaTiles profile = new OsmQaTiles(12, 12);
 
   @Test
   void testNode() {

@@ -90,14 +90,21 @@ public class OsmQaTiles implements Profile {
 
     applyOSMTags(feature, sourceFeature, osmFeature);
 
+    var zoomToSwitchToPoint = Math.min(this.maxzoom, feature.getMinZoomForPixelSize(1.0));
+
     // No need to switch to a point representation if the feature is already a point
     if (sourceFeature.isPoint()) {
       // Be sure to set the minzoom to 0 so that the point representation is shown at all zooms
-      feature.setZoomRange(this.minzoom, this.maxzoom);
+      feature
+        .setZoomRange(this.minzoom, this.maxzoom)
+        .setSortKey(sortKeyInteger.getAndIncrement())
+        .setPointLabelGridSizeAndLimit(
+          zoomToSwitchToPoint-1, // only limit below the switch point
+          2, // break the tile up into 2x2 px squares
+          16 // any only keep the 16 nodes with lowest sort-key in each 2px square
+        );
       return;
     }
-
-    var zoomToSwitchToPoint = Math.min(this.maxzoom, feature.getMinZoomForPixelSize(1.0));
 
     // Set the full fidelity feature minzoom to the switch point
     feature.setZoomRange(zoomToSwitchToPoint, this.maxzoom);
